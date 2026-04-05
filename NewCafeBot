@@ -1,0 +1,151 @@
+import asyncio
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+TOKEN = "ТВОЙ_ТОКЕН"
+ADMIN_ID = 123456789
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+
+MENU = {
+    "☕ Coffee": 20000,
+    "🥐 Cappuccino": 25000,
+    "🥪 Sandwich": 30000,
+    "🥗 Salad": 35000,
+    "🍰 Cake": 25000
+}
+
+# Хранилище
+user_data = {}
+
+# ===== START =====
+@dp.message(Command("start"))
+async def start(message: types.Message):
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🛒 Заказать")]],
+        resize_keyboard=True
+    )
+    await message.answer("Добро пожаловать ☕", reply_markup=kb)
+
+# ===== START ORDER =====
+@dp.message(F.text == "🛒 Заказать")
+async def order(message: types.Message):
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=item)] for item in MENU],
+        resize_keyboard=True
+    )
+    user_data[message.from_user.id] = {}
+    await message.answer("Выберите товар:", reply_markup=kb)
+
+# ===== ITEM =====
+@dp.message(lambda m: m.text in MENU)
+async def item(message: types.Message):
+    user_data[message.from_user.id]["item"] = message.text
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="1"), KeyboardButton(text="2"), KeyboardButton(text="3")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("Сколько штук?", reply_markup=kb)
+
+# ===== QUANTITY =====
+@dp.message(lambda m: m.text.isdigit())
+async def qty(message: types.Message):
+    user_id = message.from_user.id
+    user_data[user_id]["qty"] = int(message.text)
+
+    await message.answer("Введите ваше имя:")
+
+# ===== NAME =====
+@dp.message()
+async def name_handler(message: types.Message):
+    user_id = message.from_user.id
+
+    if "name" not in user_data[user_id]:
+        user_data[user_id]["name"] = message.text
+
+        kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="📞 Отправить номер", request_contact=True)]],
+            resize_keyboard=True
+        )
+        await message.answer("Отправьте номер телефона:", reply_markup=kb)
+        return
+
+# ===== PHONE =====
+@dp.message(F.contact)
+async def phone(message: types.Message):
+    user_id = message.from_user.id
+    user_data[user_id]["phone"] = message.contact.phone_number
+
+    await message.answer("Введите адрес доставки:")
+
+# ===== ADDRESS =====
+@dp.message()
+async def address(message: types.Message):
+    user_id = message.from_user.id
+
+    if "address" not in user_data[user_id]:
+        user_data[user_id]["address"] = message.text
+
+        data = user_data[user_id]
+        total = MENU[data["item"]] * data["qty"]
+
+        text = (
+            f"Проверьте заказ:\n\n"
+            f"{data['item']} x{data['qty']}\n"
+            f"Имя: {data['name']}\n"
+            f"Телефон: {data['phone']}\n"
+            f"Адрес: {data['address']}\n"
+            f"\nИтого: {total} сум"
+        )
+
+        kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="✅ Подтвердить")],
+                [KeyboardButton(text="❌ Отмена")]
+            ],
+            resize_keyboard=True
+        )
+
+        await message.answer(text, reply_markup=kb)
+        return
+
+# ===== CONFIRM =====
+@dp.message(F.text == "✅ Подтвердить")
+async def confirm(message: types.Message):
+    user_id = message.from_user.id
+    data = user_data[user_id]
+
+    total = MENU[data["item"]] * data["qty"]
+
+    text = (
+        f"🆕 Новый заказ:\n\n"
+        f"{data['item']} x{data['qty']}\n"
+        f"Имя: {data['name']}\n"
+        f"Телефон: {data['phone']}\n"
+        f"Адрес: {data['address']}\n"
+        f"\nИтого: {total} сум"
+    )
+
+    await bot.send_message(ADMIN_ID, text)
+
+    await message.answer("✅ Заказ принят! Мы скоро свяжемся с вами.")
+
+    user_data[user_id] = {}
+
+# ===== CANCEL =====
+@dp.message(F.text == "❌ Отмена")
+async def cancel(message: types.Message):
+    user_data[message.from_user.id] = {}
+    await message.answer("Заказ отменён ❌")
+
+# ===== RUN =====
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
